@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import JSZip from 'jszip';
 import { AuthService } from './src/lib/auth';
 import { AuthModal } from './src/components/AuthModal';
+import { renderContactModal } from './src/components/ContactModal';
 import { SessionsList } from './src/components/SessionsList';
 import { PdfList } from './src/components/PdfList';
 import { TranscriptionProgress } from './src/components/TranscriptionProgress';
@@ -11,6 +12,8 @@ import { StorageService } from './src/lib/storage';
 import { PdfService } from './src/lib/pdf-service';
 import type { DictationSession, PdfDocument } from './src/lib/supabase';
 import type { User } from '@supabase/supabase-js';
+
+import { supabase } from './src/lib/supabase';
 
 // Global variables
 let mediaRecorder: MediaRecorder | null = null;
@@ -36,7 +39,7 @@ let transcriptionProgress: TranscriptionProgress;
 // Initialize Gemini AI with validation
 function initializeGeminiAI() {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  
+  const genAI = new GoogleGenerativeAI(apiKey);
   if (!apiKey || apiKey.trim() === '' || apiKey === 'VITE_GEMINI_API_KEY') {
     console.warn('Gemini API key is missing or using example key. Please set VITE_GEMINI_API_KEY in your .env file.');
     return null;
@@ -475,21 +478,19 @@ function stopLiveWaveform(): void {
 
 async function processRecording(audioBlob: Blob): Promise<void> {
   if (!currentUser) {
-    console.error('No user logged in');
+    console.error('Aucun utilisateur connecté');
     return;
   }
 
   const recordingDurationMs = Date.now() - recordingStartTime;
   const recordingDurationSeconds = Math.floor(recordingDurationMs / 1000);
 
-  // Show transcription progress
   transcriptionProgress.show(() => {
-    // Cancel callback - could implement cancellation logic here
-    console.log('Transcription cancelled by user');
+    console.log('Transcription annulée par l’utilisateur');
   });
 
   try {
-    // Step 1: Create session
+    // Étape 1 : Création de la session
     transcriptionProgress.setStep(0, 'Création de la session...');
     
     const sessionData: Partial<DictationSession> = {
@@ -502,49 +503,40 @@ async function processRecording(audioBlob: Blob): Promise<void> {
     };
 
     const session = await DatabaseService.createSession(sessionData);
-    if (!session) {
-      throw new Error('Impossible de créer la session');
-    }
+    if (!session) throw new Error('Impossible de créer la session');
 
-    currentSessionId = session.id;
+    // Stocker l’ID de session pour les futurs envois
+    window.currentSessionId = session.id;
+    localStorage.setItem('currentSessionId', session.id);
+    console.log('Session créée avec ID :', session.id);
 
-    // Step 2: Upload audio file
+    // Étape 2 : Téléversement de l’audio
     transcriptionProgress.setStep(1, 'Téléversement de l\'audio...');
-    
     const audioFile = new File([audioBlob], `recording-${session.id}.webm`, { type: audioBlob.type });
-    const audioPath = await StorageService.uploadAudioFile(audioFile, currentUser.id, session.id);
-    
-    if (!audioPath) {
-      throw new Error('Impossible de téléverser le fichier audio');
-    }
 
-    // Update session with audio path
+    const audioPath = await StorageService.uploadAudioFile(audioFile, currentUser.id, session.id);
+    if (!audioPath) throw new Error('Impossible de téléverser le fichier audio');
+
     await DatabaseService.updateSession(session.id, { audio_file_path: audioPath });
 
-    // Step 3: Transcribe audio
+    // Étape 3 : Transcription
     transcriptionProgress.setStep(2, 'Transcription par IA...');
-    
     const transcription = await transcribeAudio(audioBlob);
-    if (!transcription) {
-      throw new Error('Impossible de transcrire l\'audio');
-    }
+    if (!transcription) throw new Error('Transcription échouée');
 
-    // Step 4: Generate title
+    // Étape 4 : Génération du titre
     transcriptionProgress.setStep(3, 'Génération du titre...');
-    
     const title = await generateTitle(transcription);
 
-    // Step 5: Generate summary
+    // Étape 5 : Création du résumé
     transcriptionProgress.setStep(4, 'Création du résumé...');
-    
     const summary = await generateSummary(transcription);
 
-    // Step 6: Generate detailed note
+    // Étape 6 : Rédaction de la note détaillée
     transcriptionProgress.setStep(5, 'Rédaction de la note détaillée...');
-    
     const detailedNote = await generateDetailedNote(transcription);
 
-    // Update session with all generated content
+    // Mise à jour de la session avec tout le contenu
     const updatedSession = await DatabaseService.updateSession(session.id, {
       title: title || 'Enregistrement sans titre',
       raw_transcription: transcription,
@@ -552,23 +544,27 @@ async function processRecording(audioBlob: Blob): Promise<void> {
       detailed_note: detailedNote || ''
     });
 
-    if (updatedSession) {
-      // Load the session into the UI
-      loadSessionIntoUI(updatedSession);
-      
-      // Refresh sessions list
-      await sessionsList.loadSessions();
-      
-      transcriptionProgress.setSuccess('Enregistrement traité avec succès !');
-    } else {
-      throw new Error('Impossible de sauvegarder les résultats');
-    }
+    if (!updatedSession) throw new Error('Impossible de sauvegarder les résultats');
+ window.currentSessionId = updatedSession.id;
+  localStorage.setItem('currentSessionId', updatedSession.id);
+  console.log('✅ Session active :', updatedSession.id);
+    // Stockage final et confirmation
+    window.currentSessionId = updatedSession.id;
+    localStorage.setItem('currentSessionId', updatedSession.id);
+    console.log('Session mise à jour :', updatedSession.id);
+
+    loadSessionIntoUI(updatedSession);
+    await sessionsList.loadSessions();
+
+    transcriptionProgress.setSuccess('Enregistrement traité avec succès !');
 
   } catch (error) {
-    console.error('Error processing recording:', error);
-    transcriptionProgress.setError(`Erreur lors du traitement: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+    console.error('Erreur lors du traitement :', error);
+    transcriptionProgress.setError(`Erreur lors du traitement : ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
   }
 }
+
+
 
 async function transcribeAudio(audioBlob: Blob): Promise<string> {
   try {
@@ -959,45 +955,137 @@ async function handleAudioUpload(file: File): Promise<void> {
   }
 }
 
+
+
+
 async function handlePdfUpload(file: File): Promise<void> {
   if (!currentUser) return;
 
+  console.log(`Téléversement du fichier PDF : ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+  transcriptionProgress.show();
+
   try {
-    // Extract text from PDF
+    // Étape 1 : Extraction du texte
+    transcriptionProgress.setStep(0, 'Extraction du texte du PDF...');
     const extractedText = await PdfService.extractTextFromPdf(file);
-    
-    // Upload PDF file
-    const filePath = await PdfService.uploadPdfFile(file, currentUser.id, currentSessionId || undefined);
-    if (!filePath) {
-      throw new Error('Impossible de téléverser le fichier PDF');
-    }
+    if (!extractedText) throw new Error("Impossible d'extraire le texte du fichier PDF.");
 
-    // Get PDF info
-    const pdfDoc = await (window as any).pdfjsLib.getDocument(await file.arrayBuffer()).promise;
-    const pageCount = pdfDoc.numPages;
-
-    // Create PDF document record
-    const pdfDocument: Partial<PdfDocument> = {
-      session_id: currentSessionId || undefined,
+    // Étape 2 : Création de la session
+    const sessionData: Partial<DictationSession> = {
       user_id: currentUser.id,
       title: file.name.replace(/\.[^/.]+$/, ''),
-      file_path: filePath,
-      file_size: file.size,
-      page_count: pageCount,
-      extracted_text: extractedText
+      recording_duration: 0,
+      raw_transcription: '',
+      summary: '',
+      detailed_note: ''
     };
 
-    const createdDoc = await PdfService.createPdfDocument(pdfDocument);
-    if (createdDoc) {
-      await pdfList.loadDocuments();
-      alert('PDF téléversé avec succès !');
+    const session = await DatabaseService.createSession(sessionData);
+    if (!session) throw new Error("Impossible de créer la session.");
+    currentSessionId = session.id;
+
+    // Étape 3 : Téléversement du fichier PDF dans Supabase
+    transcriptionProgress.setStep(1, 'Téléversement du fichier PDF...');
+    const pdfPath = await PdfService.uploadPdfFile(file, currentUser.id, session.id);
+    if (!pdfPath) throw new Error("Échec du téléversement du fichier PDF.");
+
+    // Étape 4 : Enregistrement dans la table pdf_documents
+    const pdfDoc = await PdfService.createPdfDocument({
+      user_id: currentUser.id,
+      session_id: session.id,
+      file_path: pdfPath,
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      created_at: new Date().toISOString()
+    });
+    if (!pdfDoc) throw new Error("Impossible d'enregistrer le document PDF en base.");
+
+    // Étape 5 : Génération du titre (IA ou fallback)
+    transcriptionProgress.setStep(2, 'Génération du titre...');
+    let title = '';
+    try {
+      title = await generateTitle(extractedText);
+    } catch (e) {
+      console.warn('Erreur génération titre IA, fallback local', e);
+      title = file.name.replace(/\.[^/.]+$/, '');
     }
 
+    // Étape 6 : Génération du résumé (IA ou fallback)
+    transcriptionProgress.setStep(3, 'Création du résumé...');
+    let summary = '';
+    try {
+      summary = await generateSummary(extractedText);
+    } catch (e) {
+      console.warn('Erreur génération résumé IA, fallback local', e);
+      summary = extractedText.split(/[.!?]\s/).slice(0, 3).join('. ') + '.';
+    }
+
+    // Étape 7 : Génération de la note détaillée (IA ou fallback)
+    transcriptionProgress.setStep(4, 'Rédaction de la note détaillée...');
+    let detailedNote = '';
+    try {
+      detailedNote = await generateDetailedNote(extractedText);
+    } catch (e) {
+      console.warn('Erreur génération note détaillée IA, fallback local', e);
+      detailedNote = `Texte extrait (longueur: ${extractedText.length} caractères).`;
+    }
+
+    // Étape 8 : Mise à jour de la session avec transcription et résumés
+    const updatedSession = await DatabaseService.updateSession(session.id, {
+      title: title || session.title,
+      raw_transcription: extractedText,
+      summary: summary || '',
+      detailed_note: detailedNote || ''
+    });
+    if (!updatedSession) throw new Error("Erreur lors de la mise à jour de la session.");
+
+    loadSessionIntoUI(updatedSession);
+
+    // Étape 9 : Synthèse vocale (lecture du texte)
+    transcriptionProgress.setStep(5, 'Lecture du texte extrait...');
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(extractedText.slice(0, 1000));
+      utterance.lang = 'fr-FR';
+      utterance.rate = 1;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // Rafraîchissement de la liste des sessions
+    await sessionsList.loadSessions();
+
+    transcriptionProgress.setSuccess('PDF traité avec succès avec résumé et note détaillée générés !');
+
   } catch (error) {
-    console.error('Error uploading PDF:', error);
-    alert(`Erreur lors du téléversement du PDF: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
+    console.error('Erreur :', error);
+    transcriptionProgress.setError(`Erreur : ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
   }
 }
+
+document.getElementById('previewPdfButton')?.addEventListener('click', async () => {
+  if (!currentSessionId) {
+    alert('Aucune session active');
+    return;
+  }
+
+  try {
+    const pdfDocs = await PdfService.getSessionPdfDocuments(currentSessionId);
+    if (!pdfDocs.length) {
+      alert('Aucun PDF trouvé pour cette session');
+      return;
+    }
+
+    const url = await PdfService.getPdfFileUrl(pdfDocs[0].file_path);
+    if (!url) {
+      alert('Impossible d’obtenir l’URL du fichier PDF');
+      return;
+    }
+
+    // Ouvre dans un nouvel onglet
+    window.open(url, '_blank');
+  } catch (error) {
+    console.error('Erreur de prévisualisation PDF :', error);
+    alert('Erreur lors de la prévisualisation du fichier PDF.');
+  }
+});
 
 // Utility functions
 function clearCurrentNote(): void {
@@ -1395,7 +1483,7 @@ function setupEventListeners(): void {
       });
 
       await sessionsList.loadSessions();
-      transcriptionProgress.setSuccess('Contenu régénéré avec succès !');
+      transcriptionProgress.setSuccess('Contenu régénéré avec succès');
       
     } catch (error) {
       console.error('Error refreshing content:', error);
@@ -1430,7 +1518,7 @@ function setupEventListeners(): void {
         detailed_note: detailedNote
       });
 
-      transcriptionProgress.setSuccess('Note détaillée mise à jour !');
+      transcriptionProgress.setSuccess('Note détaillée mise à jour');
       
     } catch (error) {
       console.error('Error refreshing note:', error);
@@ -1447,6 +1535,17 @@ function setupEventListeners(): void {
     });
   }
 }
+
+
+
+const openContactsBtn = document.getElementById('openContactModal');
+openContactsBtn?.addEventListener('click', () => {
+  if (!currentUser) {
+    alert('Veuillez vous connecter');
+    return;
+  }
+  renderContactModal(currentUser.id);
+});
 
 // Add CSS animations
 const style = document.createElement('style');
@@ -1475,5 +1574,294 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize app when DOM is loaded
+// DeepSeek traduction (à adapter selon ta doc API)
+// Traduction via DeepSeek (adaptée à l'API réelle)
+
+  // Configuration de la traduction
+const TRANSLATION_SERVICE = {
+  DEEPSEEK: 'deepseek',
+  LIBRE_TRANSLATE: 'libre', // Alternative open-source
+  FALLBACK: 'libre' // Service de repli
+};
+
+// Fonction de traduction améliorée avec fallback
+async function translateText(text, targetLanguage, sourceLanguage = 'fr') {
+  const apiKey = import.meta.env.VITE_API_DEEPSEEK_API_KEY;
+  const translationService = apiKey ? TRANSLATION_SERVICE.DEEPSEEK : TRANSLATION_SERVICE.FALLBACK;
+
+  try {
+    if (translationService === TRANSLATION_SERVICE.DEEPSEEK) {
+      return await translateWithDeepSeek(text, targetLanguage);
+    } else {
+      return await translateWithLibreTranslate(text, targetLanguage, sourceLanguage);
+    }
+  } catch (error) {
+    console.error('Échec de la traduction principale, utilisation du fallback:', error);
+    return await translateWithLibreTranslate(text, targetLanguage, sourceLanguage);
+  }
+}
+
+// Traduction via DeepSeek (adaptée à l'API réelle)
+async function translateWithDeepSeek(text, targetLanguage) {
+  const apiKey = import.meta.env.VITE_API_DEEPSEEK_API_KEY;
+  const apiUrl = "https://api.deepseek.com/v1/chat/completions"; 
+  
+  const response = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [{
+        role: "user",
+        content: `Translate this to ${targetLanguage}: ${text}`
+      }]
+    })
+  });
+
+  // Étape critique : Lire d'abord le texte brut pour débogage
+  const rawResponse = await response.text();
+  console.log("Raw API Response:", rawResponse); // Affiche la réponse brute
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${rawResponse}`);
+  }
+
+  // Essayez le parsing JSON seulement si la réponse n'est pas vide
+  if (!rawResponse.trim()) {
+    throw new Error("Empty API response");
+  }
+
+  return JSON.parse(rawResponse); // Maintenant safe
+}
+
+
+// 1. Récupération des contacts depuis Supabase
+async function fetchContacts() {
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) throw new Error('Utilisateur non connecté');
+
+  const { data: contacts, error } = await supabase
+    .from('contacts')
+    .select('email, nom, prenom')
+    .eq('user_id', user.id);
+
+  if (error || !contacts) throw new Error('Erreur de chargement des contacts');
+  if (contacts.length === 0) throw new Error('Aucun contact enregistré');
+
+  return contacts;
+}
+
+// 2. Envoi du résumé aux contacts sélectionnés + utilisateur, avec traduction selon langue choisie
+async function sendSummaryToContacts(sessionId, selectedEmails, targetLanguage = 'fr') {
+  if (!sessionId || !Array.isArray(selectedEmails) || selectedEmails.length === 0) {
+    throw new Error('Session invalide ou aucun contact sélectionné.');
+  }
+
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) throw new Error('Utilisateur non connecté');
+
+    const { data: session, error: sessionError } = await supabase
+      .from('dictation_sessions')
+      .select('summary')
+      .eq('id', sessionId)
+      .single();
+
+    if (sessionError || !session) throw new Error('Session introuvable.');
+    if (!session.summary || session.summary.trim() === '') throw new Error('Résumé vide.');
+
+    let summaryToSend = session.summary;
+
+    // Traduction si langue cible différente de 'fr'
+    if (targetLanguage !== 'fr') {
+      summaryToSend = await translateWithDeepSeek(session.summary, targetLanguage);
+    }
+
+    const apiKey = import.meta.env.VITE_API_BREVO;
+    const senderEmail = 'fatmakamg@gmail.com'; // Ton email fixe d'expéditeur
+
+    const recipients = new Set([...selectedEmails, user.email]);
+
+    for (const email of recipients) {
+      const payload = {
+        sender: { name: 'DictateAI', email: senderEmail },
+        to: [{ email }],
+        subject: 'Résumé de votre dictée',
+        htmlContent: `<p>${summaryToSend}</p>`
+      };
+
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'accept': 'application/json',
+          'api-key': apiKey,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error(`Échec d'envoi à ${email} :`, errorData);
+        throw new Error(`Échec d'envoi à ${email}`);
+      }
+    }
+
+    alert('Résumé envoyé avec succès aux contacts sélectionnés et à vous');
+  } catch (error) {
+    console.error('Erreur d\'envoi :', error);
+    alert(error.message || 'Erreur inconnue');
+  }
+}
+
+// 3. Ouverture du popup avec recherche, sélection, sélection langue, envoi, fermeture externe
+async function openContactSelectionPopup(sessionId) {
+  let contacts;
+  try {
+    contacts = await fetchContacts();
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.id = 'summaryPopupOverlay';
+  overlay.style = `
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    display: flex; justify-content: center; align-items: center;
+    z-index: 10000;
+  `;
+
+  const modal = document.createElement('div');
+  modal.id = 'summaryPopupModal';
+  modal.style = `
+    background: #fff;
+    padding: 25px 30px;
+    border-radius: 12px;
+    width: 95%;
+    max-width: 450px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    max-height: 90vh;
+    overflow-y: auto;
+    font-family: Arial;
+    position: relative;
+  `;
+
+  modal.innerHTML = `
+    <h2 style="margin-top: 0; font-size: 20px;">Contacts</h2>
+    <p style="margin-bottom: 10px;">Choisissez les destinataires du résumé :</p>
+
+    <label for="languageSelect" style="display:block; margin-bottom:8px; font-weight:600;">Langue de traduction :</label>
+    <select id="languageSelect" style="width: 100%; padding: 8px 10px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px;">
+      <option value="fr" selected>Français</option>
+      <option value="en">English</option>
+      <option value="es">Español</option>
+      <option value="de">Deutsch</option>
+      <option value="it">Italiano</option>
+      <!-- Ajoute d'autres langues si besoin -->
+    </select>
+
+    <input type="search" id="contactSearchInput" placeholder="Rechercher un contact..." style="width: 100%; padding: 8px 10px; margin-bottom: 15px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px;">
+    <ul id="contactsList" style="list-style: none; padding-left: 0; margin: 0 0 20px 0; max-height: 300px; overflow-y: auto;"></ul>
+    <div style="text-align: right;">
+      <button id="cancelSendSummaryBtn" style="padding: 8px 14px; background: #ccc; border: none; border-radius: 6px; margin-right: 10px; cursor: pointer;">Annuler</button>
+      <button id="confirmSendSummaryBtn" style="padding: 8px 14px; background: #007BFF; color: white; border: none; border-radius: 6px; cursor: pointer;">Envoyer</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const contactsListEl = modal.querySelector('#contactsList');
+  const searchInput = modal.querySelector('#contactSearchInput');
+  const languageSelect = modal.querySelector('#languageSelect');
+
+  function renderContactsList(filter = '') {
+    const filtered = contacts.filter(c =>
+      `${c.prenom} ${c.nom}`.toLowerCase().includes(filter.toLowerCase()) ||
+      c.email.toLowerCase().includes(filter.toLowerCase())
+    );
+
+    contactsListEl.innerHTML = filtered.map(c => `
+      <li style="margin-bottom: 8px;">
+        <label style="cursor: pointer;">
+          <input type="checkbox" class="popup-contact-checkbox" value="${c.email}" style="margin-right: 8px;">
+          <strong>${c.prenom} ${c.nom}</strong> <span style="color:gray;">(${c.email})</span>
+        </label>
+      </li>
+    `).join('');
+  }
+
+  renderContactsList();
+
+  searchInput.addEventListener('input', (e) => {
+    renderContactsList(e.target.value);
+  });
+
+  const closePopup = () => {
+    document.body.removeChild(overlay);
+    document.removeEventListener('keydown', escCloseHandler);
+  };
+
+  document.getElementById('cancelSendSummaryBtn').addEventListener('click', closePopup);
+
+  document.getElementById('confirmSendSummaryBtn').addEventListener('click', async () => {
+    const checkedBoxes = modal.querySelectorAll('.popup-contact-checkbox:checked');
+    const selectedEmails = Array.from(checkedBoxes).map(cb => cb.value);
+
+    if (selectedEmails.length === 0) {
+      alert('Veuillez sélectionner au moins un contact.');
+      return;
+    }
+
+    const selectedLanguage = languageSelect.value || 'fr';
+
+    try {
+      await sendSummaryToContacts(sessionId, selectedEmails, selectedLanguage);
+      closePopup();
+    } catch (error) {
+      console.error(error);
+      alert(error.message || 'Erreur lors de l’envoi.');
+    }
+  });
+
+  // Fermer en cliquant à l’extérieur
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closePopup();
+  });
+
+  // Fermer avec Échap
+  const escCloseHandler = (e) => {
+    if (e.key === 'Escape') closePopup();
+  };
+  document.addEventListener('keydown', escCloseHandler);
+}
+
+// 4. Bouton principal pour ouvrir le popup
 document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', () => {
+  const sendBtn = document.getElementById('sendSummaryBtn');
+  if (!sendBtn) {
+    console.error("Bouton 'sendSummaryBtn' introuvable");
+    return;
+  }
+
+  sendBtn.addEventListener('click', () => {
+    const sessionId = window.currentSessionId || localStorage.getItem('currentSessionId');
+
+    if (!sessionId) {
+      alert('Aucune session active.');
+      return;
+    }
+
+    openContactSelectionPopup(sessionId);
+  });
+});
+
+
+
