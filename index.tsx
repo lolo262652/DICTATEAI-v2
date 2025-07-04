@@ -1621,22 +1621,28 @@ async function translateWithDeepSeek(text, targetLanguage) {
     })
   });
 
-  // Étape critique : Lire d'abord le texte brut pour débogage
   const rawResponse = await response.text();
-  console.log("Raw API Response:", rawResponse); // Affiche la réponse brute
+  console.log("Raw API Response:", rawResponse);
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${rawResponse}`);
   }
 
-  // Essayez le parsing JSON seulement si la réponse n'est pas vide
   if (!rawResponse.trim()) {
     throw new Error("Empty API response");
   }
 
-  return JSON.parse(rawResponse); // Maintenant safe
-}
+  const json = JSON.parse(rawResponse);
 
+  // EXTRACT translation safely
+  const translatedText = json.choices?.[0]?.message?.content;
+
+  if (!translatedText) {
+    throw new Error("Traduction introuvable dans la réponse DeepSeek");
+  }
+
+  return translatedText;
+}
 
 // 1. Récupération des contacts depuis Supabase
 async function fetchContacts() {
