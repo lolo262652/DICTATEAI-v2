@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DICTATEAI - Dictation SaaS</title>
+    <link rel="stylesheet" href="index.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      if (typeof pdfjsLib !== 'undefined') {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      } else {
+        console.error("PDF.js library not loaded.");
+      }
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.sh/@google/genai@^0.8.0",
+          "marked": "https://esm.sh/marked@^4.0.0",
+          "jszip": "https://esm.sh/jszip@3.10.1"
+        }
+      }
+    </script>
+    
+   
+  </head>
+  <body>
+    <header class="user-header">
+  <div id="userMenuToggle">
+ <i class="fa-solid fa-user-tie"></i>
+  <span id="userNameDisplay">Fatma</span>
+  <i id="userMenuToggle" class="fas fa-chevron-down"></i>
+</div>
+
+<div id="userDropdown" class="user-dropdown hidden">
+  <ul>
+    <li><a href="/">Dashboard</a></li>
+    <li><a href="/profil.html">Profil</a></li>
+    <li><a href="/contact.html">Contact</a></li>
+    <div id="contactModalContainer" style="display: none;"></div>
+    <li><a href="#" id="logoutButton">Se déconnecter</a></li>
+  </ul>
+</div>
+
+</header>
+    <div class="app-container" id="mainApp">
+      <div class="main-content">
+               
+ 
+
+
+        <div class="note-area">
+          <div class="note-header">
+            <div class="header-left">
+              <div class="app-brand">
+                <h1 class="app-title">DICTATEAI</h1>
+                <div class="app-tagline">Powered by AI</div>
+              </div>
+              <div class="editor-title" contenteditable="true" placeholder="Untitled Note">
+                Untitled Note
+              </div>
+            </div>
+            <div class="tab-navigation-container">
+              <div class="tab-navigation">
+                <button class="tab-button active" data-tab="summary">Résumé</button>
+                <button class="tab-button" data-tab="note">Note Détaillée</button>
+                <button class="tab-button" data-tab="raw">Brut</button>
+                <div class="active-tab-indicator"></div>
+              </div>
+            </div>
+         
+
+
+           
+          
+ </div>
+
+          <div class="note-content-wrapper">
+            <div
+              id="summaryEditor"
+              class="note-content active"
+              contenteditable="true"
+              placeholder="Le résumé éditable apparaîtra ici..."
+            ></div>
+            <div
+              id="polishedNote"
+              class="note-content"
+              contenteditable="true"
+              placeholder="La note détaillée éditable apparaîtra ici..."
+            ></div>
+            <div
+              id="rawTranscription"
+              class="note-content"
+              contenteditable="true"
+              placeholder="La transcription brute éditable apparaîtra ici..."
+            ></div>
+          </div>
+        </div>
+
+        <div class="recording-interface">
+          <div id="liveRecordingTitle" class="live-recording-title" style="display: none">
+            Recording
+          </div>
+          <canvas id="liveWaveformCanvas" style="display: none"></canvas>
+          <div id="liveRecordingTimerDisplay" class="live-recording-timer" style="display: none">
+            00:00.00
+          </div>
+
+          <!-- Audio playback controls -->
+          <div id="audioPlaybackControls" class="audio-playback-controls" style="display: none">
+            <div class="playback-info">
+              <span id="playbackTitle">Lecture de l'enregistrement</span>
+              <span id="playbackTime">00:00 / 00:00</span>
+            </div>
+            <div class="playback-controls">
+              <button id="playPauseBtn" class="playback-btn">
+                <i class="fas fa-play"></i>
+              </button>
+              <input type="range" id="audioSeeker" class="audio-seeker" min="0" max="100" value="0">
+              <button id="stopPlaybackBtn" class="playback-btn">
+                <i class="fas fa-stop"></i>
+              </button>
+            </div>
+            <audio id="audioPlayer" preload="metadata"></audio>
+          </div>
+
+          <div class="status-indicator">
+            <span id="recordingStatus" class="status-text">Ready to record</span>
+          </div>
+
+          <div class="recording-controls">
+            <button class="action-button" id="themeToggleButton" title="Toggle Theme">
+              <i class="fas fa-sun"></i>
+            </button>
+
+            <button class="action-button" id="uploadAudioButton" title="Upload Audio File">
+                <i class="fas fa-upload"></i>
+            </button>
+            <input type="file" id="audioFileUpload" accept="audio/*" style="display: none;" />
+
+            <button class="action-button" id="uploadPdfButton" title="Téléverser un PDF">
+                <i class="fas fa-file-pdf"></i>
+            </button>
+            <input type="file" id="pdfFileUpload" accept="application/pdf" style="display: none;" />
+
+             <button class="action-button" id="previewPdfButton" title="Prévisualiser le PDF">
+              <i class="fas fa-eye"></i>
+            </button>
+
+         <!-- Modal de prévisualisation PDF -->
+        <div id="pdfPreviewModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999;">
+         <!-- contenu inséré dynamiquement -->
+        </div>
+
+
+
+
+            <button class="action-button" id="previewPdfButton" title="Aperçu des PDFs" style="display: none">
+                <i class="fas fa-eye"></i>
+            </button>
+
+            <button id="recordButton" class="record-button" title="Start/Stop Recording">
+              <div class="record-button-inner">
+                <i class="fas fa-microphone"></i>
+              </div>
+              <svg class="record-waves" viewBox="0 0 200 200">
+                <circle class="wave wave1" cx="100" cy="100" r="40" />
+                <circle class="wave wave2" cx="100" cy="100" r="70" />
+                <circle class="wave wave3" cx="100" cy="100" r="100" />
+              </svg>
+              <span class="record-text">Record</span>
+            </button>
+            <button id="sendSummaryBtn" class="action-button" title="Envoyer un résumé">
+  <i class="fas fa-paper-plane"></i>
+            </button>
+            <div id="alertBox" style="display:none; padding:1rem; margin-top:1rem; border-radius:6px;"></div>
+
+            <button class="action-button" id="playRecordingButton" title="Écouter l'enregistrement" style="display: none">
+                <i class="fas fa-play"></i>
+            </button>
+            
+            <button class="action-button" id="refreshAllButton" title="Tout actualiser à partir du texte brut">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+
+            <button class="action-button" id="refreshNoteFromSummaryButton" title="Actualiser la note détaillée à partir du résumé modifié">
+                <i class="fas fa-redo"></i>
+            </button>
+
+            <button class="action-button" id="copyRawTranscriptionButton" title="Copier la transcription brute">
+                <i class="fas fa-clipboard-list"></i>
+            </button>
+
+          
+            
+            <button class="action-button" id="saveSummaryButton" title="Enregistrer le résumé (depuis l'onglet Résumé)">
+                <i class="fas fa-download"></i>
+            </button>
+
+            <button class="action-button" id="copyDetailedNoteButton" title="Copier la note détaillée">
+                <i class="fas fa-clipboard"></i>
+            </button>
+
+            <button class="action-button" id="saveDetailedNoteButton" title="Enregistrer la note détaillée">
+                <i class="fas fa-file-download"></i>
+            </button>
+
+            <button class="action-button" id="saveAllButton" title="Sauvegarder tout (audio, transcription, résumé)">
+                <i class="fas fa-archive"></i>
+            </button>
+
+            <div class="duration-control-group">
+                <input type="number" id="durationInput" min="1" max="120" value="30" title="Durée d'enregistrement (minutes)" aria-label="Durée d'enregistrement en minutes" />
+                <button class="action-button" id="setDurationButton" title="Définir la durée d'enregistrement (minutes)">
+                    <i class="fas fa-hourglass-half"></i>
+                </button>
+            </div>
+
+            <button class="action-button" id="newButton" title="New Note / Clear">
+              <i class="fas fa-file"></i>
+            </button>
+
+           
+           
+ <button class="action-button" id="logoutButton" title="Se déconnecter">
+              <i class="fas fa-sign-out-alt"></i>
+            </button>
+
+          
+            
+          
+
+             
+
+
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+   
+
+    <div id="micStatus" class="debug-panel"></div>
+    <script type="module" src="./src/components/displayUserName.ts"></script>
+    <script type="module" src="index.tsx"></script>
+  </body>
+</html>

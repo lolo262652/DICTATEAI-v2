@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mes Contacts - DictateAI</title>
+  <link rel="stylesheet" href="index.css" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://getbootstrap.com/docs/5.3/assets/css/docs.css" rel="stylesheet">
+    <title>Bootstrap Example</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+  <style>
+  
+  </style>
+</head>
+<body>
+<header class="user-header">
+  <div id="userMenuToggle">
+  <i class="fa-solid fa-user-tie"></i>
+  <span id="userNameDisplay">Fatma</span>
+  <i id="userMenuToggle" class="fas fa-chevron-down"></i>
+</div>
+
+<div id="userDropdown" class="user-dropdown hidden">
+  <ul>
+    <li><a href="/">Dashboard</a></li>
+    <li><a href="/profil.html">Profil</a></li>
+    <li><a href="/contact.html">Contact</a></li>
+    <div id="contactModalContainer" style="display: none;"></div>
+    <li><a href="#" id="logoutButton">Se déconnecter</a></li>
+  </ul>
+</div>
+
+</header>
+  <div class="container">
+    <h1>Mes Contacts</h1>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="add">Ajouter</div>
+      <div class="tab" data-tab="list">Liste</div>
+    </div>
+
+    <div class="tab-content active" id="add">
+      <form id="addContactForm">
+  <input type="text" name="prenom" placeholder="Prénom" class="form-field" required />
+  <input type="text" name="nom" placeholder="Nom" class="form-field" required />
+  <input type="text" name="societe" placeholder="Société" class="form-field" />
+  <input type="email" name="email" placeholder="Email" class="form-field" required />
+  <input type="file" name="photo" accept="image/*" />
+<img id="photoPreview" style="display: none; width: 80px; margin-top: 10px;" />
+
+  <div><button type="submit" class="btn">Ajouter</button></div>
+</form>
+      <div id="contactMessage" class="message-area"></div>
+
+    </div>
+
+    <div class="tab-content" id="list">
+    <table class="table-contact">
+  <thead class="thead">
+    <tr>
+      <th scope="col">Photo</th>
+      <th scope="col">Prénom</th>
+      <th scope="col">Nom</th>
+      <th scope="col">Société</th>
+      <th scope="col">Email</th>
+      <th scope="col">Actions</th>
+    </tr>
+  </thead>
+  <tbody id="contactTableBody">
+    <!-- Contacts affichés ici -->
+  </tbody>
+</table>
+
+<div id="contactMessage" class="mt-3 fw-bold text-warning"></div>
+
+      
+    </div>
+    
+  </div>
+<script type="module" src="index.tsx"></script>
+  <script type="module" src="./src/components/loadTableContacts.ts"></script>
+</body>
+</html>

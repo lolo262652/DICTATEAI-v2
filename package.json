@@ -1,0 +1,25 @@
+{
+  "name": "dictation-et-resume-suite",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emailjs/browser": "^4.4.1",
+    "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "jszip": "3.10.1",
+    "marked": "^4.0.0",
+    "openai": "^5.8.2",
+    "pdfjs-dist": "^5.1.91"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.3.5"
+  }
+}
